@@ -3,6 +3,45 @@ A small collection of scripts and mods for Proxmox Virtual Environment (PVE)
 
 If you find this helpful, a small donation is appreciated, [![Donate](https://www.paypalobjects.com/en_US/i/btn/btn_donate_LG.gif)](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=K8XPMSEBERH3W).
 
+## Installation
+
+The mods are now shipped as a single Debian package (`pve-mod`). You install the package once, then pick which modules to enable with an interactive configurator. This replaces the old "clone the repo and run a per-mod `bash …install` script" workflow — those standalone scripts still live under [`legacy-scripts/`](legacy-scripts/) but are frozen and do **not** include the newer packaged modules.
+
+Run everything as **root** on the Proxmox host.
+
+**Quick install (recommended)** — downloads the latest release `.deb` and installs it:
+```bash
+curl -sL https://github.com/Meliox/PVE-mods/releases/latest/download/install.sh | bash
+```
+
+**Manual install** — grab `pve-mod_*.deb` from the [Releases](https://github.com/Meliox/PVE-mods/releases) page:
+```bash
+dpkg -i pve-mod_*.deb || apt-get install -f -y
+```
+
+**Configure** — run the wizard and choose which modules to enable:
+```bash
+pve-mod-configure
+# then clear your browser cache to see UI changes
+```
+
+`pve-mod-configure` detects your hardware, asks which features to turn on, writes `/etc/pve-mod/pve-mod.conf`, and applies the patches. Re-run it any time to change your selection. Available modules:
+
+| Module | Description |
+|--------|-------------|
+| `node_info` | Sensor readings, GPU stats, UPS and system/motherboard information in the node summary |
+| `nag_screen` | Remove the Proxmox subscription nag screen |
+| `migrate_storage` | Target-storage selector for **offline** VM migration (see below) |
+
+The configurator can also register a dpkg trigger so the patches are **re-applied automatically** when `pve-manager` is upgraded (the old scripts had to be re-run by hand after every PVE update).
+
+**Uninstall** — reverts all patches and restores the original Proxmox files:
+```bash
+apt-get remove pve-mod
+```
+
+> Building locally: from a clone, `apt-get install -y debhelper dpkg-dev && dpkg-buildpackage -us -uc -b` produces `../pve-mod_*.deb`.
+
 ## Node sensor readings view
 Compatibility:
 - 9.0-9.2. Newer versions may often work
@@ -38,7 +77,9 @@ Notes:
 - UPS support in multi-node setups require identical login credentials across nodes. This has not been fully tested.  
 - Proxmox upgrades may overwrite modified files; reinstallation of this mod could be required.  
 
-### Install
+### Install (legacy standalone script)
+> Prefer the packaged `node_info` module via [Installation](#installation) above. The script below is the frozen, sensors-only legacy installer.
+
 Instructions be performed as 'root', as normal users do not have access to the files.
 
 ```
@@ -84,7 +125,9 @@ The script provides three options:
 | `install`              | Installs the modification by applying the necessary changes.                |
 | `uninstall`            | Removes the modification by restoring the original files from backups.      |
 
-### Install
+### Install (legacy standalone script)
+> Prefer the packaged `nag_screen` module via [Installation](#installation) above. The script below is the frozen legacy installer.
+
 Instructions be performed as 'root', as normal users do not have access to the files.
 ```
 wget https://raw.githubusercontent.com/Meliox/PVE-mods/refs/heads/main/legacy-scripts/pve-mod-nag-screen.sh
