@@ -225,8 +225,9 @@ fi
 # the 'targetstorage' parameter is never sent, even though the migrate API and
 # `qm migrate --targetstorage` fully support offline storage relocation. This
 # patch drops the `&& running` guard in two spots so the selector also appears
-# for offline VMs and the parameter is forwarded, and relaxes a third spot so
-# the "storage not available on target" precondition no longer blocks Migrate.
+# for offline VMs and the parameter is forwarded, and skips a third spot (the
+# offline allowed-nodes/storage precondition) that would otherwise restrict the
+# target node and block Migrate when the current storage is absent on the target.
 #
 # No file backup is taken on purpose: the edit is a surgical, fully reversible
 # regex (see revert-patches.sh) keyed on the 'pve-mod-offline-storage' marker.
@@ -274,17 +275,19 @@ if n_sub != 1:
           file=sys.stderr)
     sys.exit(1)
 
-# 3. checkQemuPreconditions: stop the "Storage(s) (X) not available on selected
-#    target" check from blocking the Migrate button for offline VMs. Without a
-#    target storage the current storage may be missing on the target node, which
-#    sets migration.possible = false and disables Migrate — exactly the case the
-#    selector is meant to resolve. Short-circuit the guard so the blocking error
-#    is never pushed; the "local disk might take long" warnings still inform the
-#    user, and the backend rejects a genuinely impossible migration.
-#    if (disallowed.unavailable_storages !== undefined) {
+# 3. checkQemuPreconditions: skip the offline allowed-nodes / storage block.
+#    For offline VMs this block (a) sets migration.allowedNodes, which restricts
+#    the Target node selector to nodes already hosting the VM's current storage
+#    (so the chosen node shows "Node X is not allowed for this action"), and
+#    (b) pushes a blocking "Storage(s) not available on target" error that
+#    disables Migrate. Both are exactly what target-storage relocation resolves,
+#    so short-circuit the outer guard: migration.allowedNodes stays undefined
+#    (its default → no node restriction) and the blocking error is never raised.
+#    Unrelated checks (mapped resources, HA, local passthrough) are untouched.
+#    if (migrateStats.allowed_nodes && !vm.get('running')) {
 precond_re = re.compile(
     r"(if\s*\(\s*)"
-    r"(disallowed\.unavailable_storages\s*!==\s*undefined)"
+    r"(migrateStats\.allowed_nodes\s*&&\s*!\s*vm\.get\(\s*['\"]running['\"]\s*\))"
     r"(\s*\)\s*\{)"
 )
 content, n_pre = precond_re.subn(
@@ -292,7 +295,7 @@ content, n_pre = precond_re.subn(
     content, count=1,
 )
 if n_pre != 1:
-    print("ERROR: unavailable_storages precondition anchor not found in pvemanagerlib.js",
+    print("ERROR: offline allowed_nodes precondition anchor not found in pvemanagerlib.js",
           file=sys.stderr)
     sys.exit(1)
 
