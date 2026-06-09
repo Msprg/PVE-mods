@@ -225,7 +225,8 @@ fi
 # the 'targetstorage' parameter is never sent, even though the migrate API and
 # `qm migrate --targetstorage` fully support offline storage relocation. This
 # patch drops the `&& running` guard in two spots so the selector also appears
-# for offline VMs and the parameter is forwarded.
+# for offline VMs and the parameter is forwarded, and relaxes a third spot so
+# the "storage not available on target" precondition no longer blocks Migrate.
 #
 # No file backup is taken on purpose: the edit is a surgical, fully reversible
 # regex (see revert-patches.sh) keyed on the 'pve-mod-offline-storage' marker.
@@ -270,6 +271,28 @@ content, n_sub = sub_re.subn(
 )
 if n_sub != 1:
     print("ERROR: startMigration targetstorage anchor not found in pvemanagerlib.js",
+          file=sys.stderr)
+    sys.exit(1)
+
+# 3. checkQemuPreconditions: stop the "Storage(s) (X) not available on selected
+#    target" check from blocking the Migrate button for offline VMs. Without a
+#    target storage the current storage may be missing on the target node, which
+#    sets migration.possible = false and disables Migrate — exactly the case the
+#    selector is meant to resolve. Short-circuit the guard so the blocking error
+#    is never pushed; the "local disk might take long" warnings still inform the
+#    user, and the backend rejects a genuinely impossible migration.
+#    if (disallowed.unavailable_storages !== undefined) {
+precond_re = re.compile(
+    r"(if\s*\(\s*)"
+    r"(disallowed\.unavailable_storages\s*!==\s*undefined)"
+    r"(\s*\)\s*\{)"
+)
+content, n_pre = precond_re.subn(
+    r"\1false /* pve-mod-offline-storage-precond */ && \2\3",
+    content, count=1,
+)
+if n_pre != 1:
+    print("ERROR: unavailable_storages precondition anchor not found in pvemanagerlib.js",
           file=sys.stderr)
     sys.exit(1)
 

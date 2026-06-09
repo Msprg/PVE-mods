@@ -65,6 +65,11 @@ content = content.replace(
     "get('migration.with-local-disks') && true /* pve-mod-offline-storage-selector */",
     "get('migration.with-local-disks') && get('running')",
 )
+# Strip the precondition short-circuit, restoring the original guard verbatim.
+content = content.replace(
+    "false /* pve-mod-offline-storage-precond */ && ",
+    "",
+)
 open(path, 'w').write(content)
 PYEOF
     info "Reverted pvemanagerlib.js (offline VM target storage selector)"
