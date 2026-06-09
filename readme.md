@@ -51,6 +51,25 @@ bash pve-mod-gui-sensors.sh install
 ```
 Additionally, adjustments are available in the first part of the script, where paths can be edited, cpucore offset and display information.
 
+## Offline VM target storage selector
+Part of the `pve-mod` package — enable it with `pve-mod-configure` (module: `migrate_storage`).
+
+Proxmox's VM **Migrate** dialog only shows a *Target storage* selector for **running** VMs (live storage migration). For powered-off VMs the selector is hidden and the `targetstorage` parameter is never sent, even though the migrate API and `qm migrate --targetstorage` fully support relocating disks during an offline migration. The usual workaround is to drop to a shell and run:
+```
+qm migrate <vmid> <target-node> --targetstorage <storage-id>
+```
+
+This mod removes that limitation in the UI. It patches `pvemanagerlib.js` (the VM/CT migrate window) so the *Target storage* selector is also shown for offline VMs and the chosen storage is forwarded to the API, letting disks move to a differently-named storage on the target node directly from the GUI.
+
+How it works:
+1. Drops the `&& running` guard in the migrate window's `setStorageselectorHidden` formula, so the selector appears whenever the VM has local disks (online **or** offline).
+2. Drops the same guard in `startMigration`, so `targetstorage` is forwarded for offline migrations too.
+
+Notes:
+- The edit is a surgical, fully reversible patch (no whole-file backup needed) and is automatically reverted on package removal.
+- Containers (LXC) are unaffected: the selector is gated on local-disk detection that only the QEMU code path sets.
+- Leaving the selector on its default *Current layout* keeps the stock behaviour (disks stay on the same-named storage).
+
 ## Nag screen deactivation
 (Tested compatibility: 7.x - 8.3.5)
 This bash script installs a modification to the Proxmox Virtual Environment (PVE) web user interface (UI) which deactivates the subscription nag screen.

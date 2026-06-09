@@ -53,6 +53,7 @@ backup_file() {
 NODE_INFO=$(read_conf modules node_info 0)
 NAG_SCREEN=$(read_conf modules nag_screen 0)
 GPU_HISTORY=$(read_conf gpu gpu_history 0)
+MIGRATE_STORAGE=$(read_conf modules migrate_storage 0)
 
 CHANGED=false
 
@@ -214,6 +215,67 @@ PYEOF
         mkdir -p "$GPU_RRD_DIR"
         chown www-data:www-data "$GPU_RRD_DIR" 2>/dev/null || true
         info "Installed gpurrddata API endpoint"
+        CHANGED=true
+    fi
+fi
+
+# ── migrate-storage: pvemanagerlib.js ─────────────────────────────────────────
+# The stock VM migrate dialog only offers a "Target storage" selector for
+# *running* VMs (live storage migration). For powered-off VMs it is hidden and
+# the 'targetstorage' parameter is never sent, even though the migrate API and
+# `qm migrate --targetstorage` fully support offline storage relocation. This
+# patch drops the `&& running` guard in two spots so the selector also appears
+# for offline VMs and the parameter is forwarded.
+#
+# No file backup is taken on purpose: the edit is a surgical, fully reversible
+# regex (see revert-patches.sh) keyed on the 'pve-mod-offline-storage' marker.
+# This avoids colliding with the node-info backup of the same file, whose
+# revert restores the newest pvemanagerlib.js.* backup.
+if [[ "$MIGRATE_STORAGE" == "1" ]]; then
+    if ! grep -qF "pve-mod-offline-storage" "$PVE_MANAGER_JS" 2>/dev/null; then
+        python3 - "$PVE_MANAGER_JS" <<'PYEOF'
+import sys, re
+
+path = sys.argv[1]
+content = open(path).read()
+
+if 'pve-mod-offline-storage' in content:
+    sys.exit(0)
+
+# 1. setStorageselectorHidden formula: show selector regardless of run state.
+#    get('migration.with-local-disks') && get('running')
+sel_re = re.compile(
+    r"get\(\s*['\"]migration\.with-local-disks['\"]\s*\)\s*&&\s*"
+    r"get\(\s*['\"]running['\"]\s*\)"
+)
+content, n_sel = sel_re.subn(
+    "get('migration.with-local-disks') && true /* pve-mod-offline-storage-selector */",
+    content, count=1,
+)
+if n_sel != 1:
+    print("ERROR: setStorageselectorHidden anchor not found in pvemanagerlib.js",
+          file=sys.stderr)
+    sys.exit(1)
+
+# 2. startMigration: forward 'targetstorage' for offline VMs too.
+#    vm.get('migration.with-local-disks') && vm.get('running') && values.targetstorage
+sub_re = re.compile(
+    r"vm\.get\(\s*['\"]migration\.with-local-disks['\"]\s*\)\s*&&\s*"
+    r"vm\.get\(\s*['\"]running['\"]\s*\)\s*&&\s*values\.targetstorage"
+)
+content, n_sub = sub_re.subn(
+    "vm.get('migration.with-local-disks') && true "
+    "/* pve-mod-offline-storage-submit */ && values.targetstorage",
+    content, count=1,
+)
+if n_sub != 1:
+    print("ERROR: startMigration targetstorage anchor not found in pvemanagerlib.js",
+          file=sys.stderr)
+    sys.exit(1)
+
+open(path, 'w').write(content)
+PYEOF
+        info "Patched pvemanagerlib.js (offline VM target storage selector)"
         CHANGED=true
     fi
 fi

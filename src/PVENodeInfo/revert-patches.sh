@@ -42,6 +42,35 @@ if grep -qF "PveMod_PveNodeStatusView.js" "$PVE_MANAGER_JS" 2>/dev/null; then
     CHANGED=true
 fi
 
+# ── migrate-storage: pvemanagerlib.js ─────────────────────────────────────────
+# Reverse the surgical edit from apply-patches.sh, restoring the original
+# `&& running` guards. Run AFTER the node-info restore above: if node-info was
+# enabled after migrate-storage, its pvemanagerlib.js backup already contains
+# the migrate markers, so restoring it reintroduces them — reverting here, last,
+# strips them in every ordering and leaves the file pristine.
+if grep -qF "pve-mod-offline-storage" "$PVE_MANAGER_JS" 2>/dev/null; then
+    python3 - "$PVE_MANAGER_JS" <<'PYEOF'
+import sys
+
+path = sys.argv[1]
+content = open(path).read()
+
+# Reverse the startMigration edit first (more specific), then the selector one.
+content = content.replace(
+    "vm.get('migration.with-local-disks') && true "
+    "/* pve-mod-offline-storage-submit */ && values.targetstorage",
+    "vm.get('migration.with-local-disks') && vm.get('running') && values.targetstorage",
+)
+content = content.replace(
+    "get('migration.with-local-disks') && true /* pve-mod-offline-storage-selector */",
+    "get('migration.with-local-disks') && get('running')",
+)
+open(path, 'w').write(content)
+PYEOF
+    info "Reverted pvemanagerlib.js (offline VM target storage selector)"
+    CHANGED=true
+fi
+
 # ── node-info: JS module file ─────────────────────────────────────────────────
 if [[ -f "$PVE_MOD_JS" ]]; then
     rm -f "$PVE_MOD_JS"
